@@ -41,24 +41,29 @@ scripts in this folder — see Architecture below.
 
 ## Experimental data: constant-current vs. variable-current segments
 
-This project draws on two independent, unrelated datasets, each documented separately:
+The project's current scope is **NASA's "Randomized Battery Usage Data Set"**
+(`data/raw/randomized_battery_usage/`; Bole, Kulkarni & Daigle, NASA Ames PCoE) — downloaded as item "11.
+Randomized Battery Usage" from the
+[NASA PCoE Data Set Repository](https://www.nasa.gov/intelligent-systems-division/discovery-and-systems-health/pcoe/pcoe-data-set-repository/);
+documented per sub-dataset by its own `README_RW_*.html`/`.Rmd` file.
 
-- **NASA's "Randomized Battery Usage Data Set"** (`data/raw/randomized_battery_usage/`; Bole, Kulkarni &
-  Daigle, NASA Ames PCoE) — downloaded as item "11. Randomized Battery Usage" from the
-  [NASA PCoE Data Set Repository](https://www.nasa.gov/intelligent-systems-division/discovery-and-systems-health/pcoe/pcoe-data-set-repository/);
-  documented per sub-dataset by its own `README_RW_*.html`/`.Rmd` file.
-- **The accelerated life-testing dataset** described in
-  `docs/3587-Full-Length Manuscripts-13587-1-10-20231221.pdf` (Fricke, Nascimento, Corbetta, Kulkarni &
-  Viana) — downloaded as item "21. Accelerated Battery Life Testing" from the same
-  [NASA PCoE Data Set Repository](https://www.nasa.gov/intelligent-systems-division/discovery-and-systems-health/pcoe/pcoe-data-set-repository/).
-  This is `battery_alt_dataset` at the parent level (`batt_gamma_estimation/data/`; see its own
-  `README.txt`), **not** anything under this project's `data/`. The `battery00.csv`...`battery52.csv` files
-  in the shared `prepared data/` folder that `src/identify_parameters/` and `src/estimate_degradation/`
-  read are almost certainly derived from it — the naming matches `battery_alt_dataset`'s `batt_XX.mat` files
-  exactly, and its `README.txt` documents the same `mode`/`mission type` columns those scripts rely on.
+A second, unrelated dataset — **the accelerated life-testing dataset** described in
+`docs/3587-Full-Length Manuscripts-13587-1-10-20231221.pdf` (Fricke, Nascimento, Corbetta, Kulkarni &
+Viana; downloaded as item "21. Accelerated Battery Life Testing" from the same NASA PCoE repository) — is
+present but **out of scope for now**, earmarked for future work. It's `battery_alt_dataset`: present at the
+parent level (`batt_gamma_estimation/data/`) and now also copied into this project's own
+`data/raw/battery_alt_dataset/battery_alt_dataset/` (a zip-extract double-nesting, with a stray
+`__MACOSX/` folder alongside it to ignore), in three subfolders — `regular_alt_batteries/`,
+`recommissioned_batteries/`, `second_life_batteries/` — each holding `batteryNN.csv` files (52 total) with
+the schema (`mode`, `mission type`, etc.) its own `README.txt` documents. No script here reads it yet. The
+`battery00.csv`...`battery52.csv` files in the shared `prepared data/` folder that
+`src/identify_parameters/` and `src/estimate_degradation/` already read are almost certainly a partial copy
+of these — same naming, same columns.
 
-Despite being unrelated, both datasets mix the same two fundamentally different kinds of cycling segments,
-and this project's pipeline is organized around that split:
+Despite being unrelated, both datasets mix the same two fundamentally different kinds of cycling segments
+that this project's pipeline is organized around (the rest of this section describes that split in terms of
+the in-scope NASA dataset, but it generalizes the same way to `battery_alt_dataset` when that becomes
+active):
 
 - **Constant-current segments** — e.g. NASA's low-current (0.04A) discharge used to trace OCV vs. SOC, its
   2A "reference discharge/charge", or `battery_alt_dataset`'s periodic reference discharges (constant
