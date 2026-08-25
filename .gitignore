@@ -1,0 +1,13 @@
+# Large / regenerable data
+/data/raw/
+/results/
+
+# MATLAB
+*.asv
+*.slx.autosave
+slprj/
+codegen/
+*.slxc
+
+# OS
+.DS_Store
