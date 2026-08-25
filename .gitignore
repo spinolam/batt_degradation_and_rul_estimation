@@ -1,5 +1,7 @@
 # Large / regenerable data
 /data/raw/
+/data/constant/prepared/
+/data/random/prepared/
 /results/
 
 # MATLAB

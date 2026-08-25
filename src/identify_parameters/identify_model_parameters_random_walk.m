@@ -5,7 +5,7 @@ if new_run
     this_dir = fileparts(mfilename('fullpath'));
     proj_root = fileparts(fileparts(this_dir));    % 2025/src/identify_parameters -> 2025/
     battery_name='low_current.mat';
-    dataFile = fullfile(proj_root, 'data', 'random', battery_name);
+    dataFile = fullfile(proj_root, 'data', 'constant', battery_name);
     battery_data = open(dataFile);
     print_on=0;
 end

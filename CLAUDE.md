@@ -76,7 +76,8 @@ the wrong pipeline stage silently produces meaningless fits or estimates.
 2025/
 ├── data/
 │   ├── raw/randomized_battery_usage/   # third-party NASA dataset, read-only
-│   └── random/                          # synthetic/randomized-usage .mat inputs
+│   ├── constant/                        # constant-current .mat inputs + prepared/ CSV output
+│   └── random/                          # random/variable-current .mat inputs + prepared/ CSV output
 ├── src/
 │   ├── models/                          # .slx Simulink models + the LQR/LMI observer synthesis script
 │   ├── data_prep/                       # raw -> labeled charge/discharge data
@@ -106,13 +107,16 @@ Typical workflow, in order:
    the **CVX** convex-optimization toolbox (`cvx_startup`, `cvx_begin sdp`) to solve the polytopic LMI and
    produce the observer gain `L3`. Invoked via `run(fullfile(models_dir, ...))` from inside the
    `estimate_degradation/` drivers — no need to have it on the MATLAB path.
-2. **Prepare random/raw data** — `src/data_prep/prepara_random_data.m` turns raw randomized-usage data
-   (`data/random/*.mat`) into a labeled charge/discharge dataset (adds a `mode` column via `bwlabel`),
-   writing to the parent-level `prepared data/` folder (shared with `2024/`).
+2. **Prepare constant/random data** — `src/data_prep/prepara_random_data.m` loads every raw `.mat` under
+   `data/constant/` and `data/random/`, classifies each sample as constant- or random-current (see
+   "Experimental data" above), and writes a labeled discharge dataset (`mode` column via `bwlabel`, scoped
+   per class) to the matching `data/constant/prepared/` or `data/random/prepared/` folder — a single raw
+   file can produce both outputs if it mixes segment types. This is self-contained under `data/`; the
+   parent-level `prepared data/` folder (shared with `2024/`) is untouched by this step.
 3. **Identify model parameters** (optional, offline) — scripts in `src/identify_parameters/` fit OCV +
    internal resistance polynomial + thermal model coefficients from discharge segments via `lsqnonlin`.
    `identify_model_parameters_nonlinear_all_random_data.m` reads from the parent-level `prepared data/`;
-   `identify_model_parameters_random_walk*.m` read from `data/random/`.
+   `identify_model_parameters_random_walk*.m` read directly from `data/constant/`.
 4. **Run the degradation-estimation simulation** — `src/estimate_degradation/run_discharge_random.m` or
    `run_discharge_with_kf_real_data_new_parameters_new.m`. These loop over cycles/batteries, run the
    Simulink model via `sim(...)`, and save accumulated results to `results/<date>/<date>_<battery>.mat`.
@@ -138,8 +142,12 @@ Typical workflow, in order:
   (OCV as a log/inverse-SOC curve, resistance as a degree-4 polynomial in SOC, optional first-order thermal
   model) to discharge segments via `lsqnonlin`. Segments are selected by `mode` value (e.g. `mode == -3`).
   These fitted parameters feed the model used inside the Simulink diagrams.
-- **`src/data_prep/`** — turns raw randomized-usage logs into the labeled discharge/charge dataset consumed
-  by the other stages (adds `mode` via `bwlabel` on the sign of current).
+- **`src/data_prep/`** — `prepara_random_data.m` turns raw `.mat` logs into labeled discharge datasets. For
+  NASA "step"-struct inputs it classifies each step by its `comment` field (anything containing "random
+  walk" is random-current; everything else — low-current, reference, pulsed profiles, and their rests — is
+  constant-current); for flat `I`/`V`/`RT` inputs with no per-sample label it falls back to a
+  current-stability heuristic. Each class gets `mode` via `bwlabel` on the sign of current, computed
+  separately so cycle numbering stays meaningful within one current regime.
 - **`data/raw/randomized_battery_usage/`** — third-party NASA dataset (raw `.mat`/README per subset); treat
   as read-only input data, not project source. Not currently read by any script here.
 - **`results/<date>/`** — one `.mat` per battery per experiment date, produced by
