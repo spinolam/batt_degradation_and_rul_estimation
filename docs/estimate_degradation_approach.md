@@ -1,8 +1,11 @@
 # `src/estimate_degradation/` — objective, approach, and model
 
-Companion to `estimate_degradation_review.md` (code-level findings). This document is about *why*
-the subsystem is built the way it is: what it's trying to estimate, how it goes about it, and the
-exact model underneath.
+Companion to `estimate_degradation_review.md` (code-level findings) and
+`estimate_degradation_observability_analysis.md` (a from-first-principles check of whether `gamma` is
+actually observable from voltage, and how strongly — short answer: yes, but weakly, and the weakness
+traces back to the offline parameter fit, not the observer design). This document is about *why* the
+subsystem is built the way it is: what it's trying to estimate, how it goes about it, and the exact
+model underneath.
 
 ## Objective
 
