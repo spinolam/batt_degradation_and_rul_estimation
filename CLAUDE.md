@@ -101,10 +101,12 @@ silently produces meaningless fits or estimates.
 │   ├── constant/                        # constant-current .mat inputs + prepared/ CSV output
 │   └── random/                          # random/variable-current .mat inputs + prepared/ CSV output
 ├── src/
-│   ├── models/                          # .slx Simulink models + the LQR/LMI observer synthesis script
+│   ├── models/                          # .slx Simulink models + the single-gain LQR/LMI observer synthesis script
 │   ├── data_prep/                       # raw -> labeled charge/discharge data
-│   ├── identify_parameters/             # offline equivalent-circuit parameter fitting (lsqnonlin)
-│   ├── estimate_degradation/            # simulation drivers (run the Simulink model per cycle)
+│   ├── identify_parameters/             # offline equivalent-circuit parameter fitting (lsqnonlin/fmincon)
+│   │   └── parameters/                  # saved params_opt .mat files, keyed by battery/dataset name
+│   ├── estimate_degradation/            # simulation drivers
+│   │   └── random_walk/                 # gain-scheduled LPV pipeline for random-walk data (see Running the code/Architecture)
 │   └── plot_results/                    # load results/<date>/ and plot
 ├── results/<date>/                      # one .mat per battery per experiment date
 └── docs/Planning.md
@@ -145,10 +147,33 @@ Typical workflow, in order:
    fits OCV + internal resistance polynomial + thermal model coefficients from discharge segments (selected
    by `mode`) via `lsqnonlin`, reading RW1's low-current and pulsed CSVs from `data/constant/prepared/`
    (output of step 3) — the low-current segment pins down OCV(SOC), the higher-current pulses pin down
-   R(SOC).
-5. **Run the degradation-estimation simulation** — `src/estimate_degradation/run_discharge_random.m` or
-   `run_discharge_with_kf_real_data_new_parameters_new.m`. These loop over cycles/batteries, run the
-   Simulink model via `sim(...)`, and save accumulated results to `results/<date>/<date>_<battery>.mat`.
+   R(SOC). A `cfg` block near the top selects two opt-in extensions on top of the default fit (plain log OCV,
+   degree-2 R polynomial, `lsqnonlin` output-error): `cfg.ocvModelType = 'log_tanh'` adds an S-curve
+   inflection term for the mid-SOC plateau, and `cfg.fitMethod = 'fmincon_constrained'` allows a degree-4 R
+   polynomial constrained via `nonlcon` to stay physically sensible instead of falling back to degree-2. The
+   script also holds out one pulse never used in fitting and reports/plots its fit error separately as a
+   genuine out-of-sample check.
+   **Benchmarked on RW1 (2026-08-25): neither extension beats the default** — held-out voltage/temperature RMSE
+   is 0.032 V / 0.267 °C for the default vs. 0.069/0.260 for `log_tanh` alone (tanh term ~106% uncertain, not
+   supported by this data) and 0.615/1.431 for `fmincon_constrained` alone (converges cleanly but to a much
+   worse local minimum — Joule-heating coefficient comes out at 413.6 vs. the default's physically-sensible
+   25.8). Keep `'log'`/`'lsqnonlin'` as the actual default; see the `cfg` comment in the script for the full
+   numbers.
+5. **Run the degradation-estimation simulation.** Two regimes, two subtrees:
+   - *Constant-current* — `src/estimate_degradation/run_discharge_with_kf_real_data_new_parameters_new.m`
+     (the complete driver; `run_discharge_random.m` in the same folder is an older, unfinished stub — see
+     Architecture) uses the single robust gain from `src/models/lqr_synthesis_observer_simple_Lx3x3_no_VOC.m`
+     and the `estimation_data_with_new_parameter_new.slx` model.
+   - *Random-walk* — `src/estimate_degradation/random_walk/` is the **primary** pipeline for this regime, built
+     around a **gain-scheduled LPV observer** (`lqr_synthesis_observer_gain_scheduled_lpv.m`, synthesizing 4
+     vertex gains `L1..L4` instead of one robust gain) rather than the single-gain design. It offers two
+     interchangeable execution paths over the same twin/observer: `run_discharge_random_simulink.m` drives the
+     `estimation_random.slx` Simulink model per cycle; `simulate_random_discharge_matlab.m` and
+     `simulate_reference_discharge_matlab.m` call the pure-MATLAB `battery_twin.m` + `observer_lpv.m` +
+     `calcule_l_observer.m` functions directly, sample-by-sample, without Simulink (over raw
+     `random_walk_discharge` steps and pre-segmented `ref_discharges` cycles respectively — see Architecture).
+
+   All drivers loop over cycles/batteries and save accumulated results to `results/<date>/<date>_<battery>.mat`.
 6. **Plot results** — scripts in `src/plot_results/` load the saved `results/<date>/...mat` files and
    produce comparison plots (voltage/temperature/SOC/degradation) across cycles or battery types.
 
@@ -167,10 +192,27 @@ Typical workflow, in order:
   `run_discharge_random.m` is a shorter, in-progress variant that stops after building the input timeseries
   for one segment (no `sim`/save step yet) — `run_discharge_with_kf_real_data_new_parameters_new.m` is the
   complete driver.
+- **`src/estimate_degradation/random_walk/`** — the gain-scheduled LPV pipeline (see Running the code, step 5).
+  `battery_twin.m` (a forward simulation of the plant, used as ground truth) and `observer_lpv.m` (the LPV
+  state observer, state `x = [gamma; SOC; V]`) are pure functions with persistent internal state — each
+  exposes a `reset` flag (its last argument) that must be called once per cycle before use to clear that
+  state, or estimates leak across cycles. `calcule_l_observer.m` interpolates the gain-scheduled `L1..L4`
+  vertex gains at each sample via bilinear (tensor-product) weights on the current `(rho1, rho2)` pair,
+  vs. the single fixed gain the constant-current pipeline uses throughout. `voc_fun.m` is dead code ported
+  as-is (references undefined variables; not called by anything). Reads fitted parameters from
+  `src/identify_parameters/parameters/<battery>.mat` (`params_opt`) and random-walk data from
+  `data/random_walk_data/` (`<battery>_random.mat` holds raw `random_walk_discharge` steps;
+  `<battery>.mat` holds pre-segmented `ref_discharges` cycles) — currently only `RW_Skewed_High_Room_Temp_DataSet_17`
+  has both. `data/random_walk_data/` is gitignored like `data/raw/` (large, third-party-derived) — it isn't
+  in the repo, so a fresh clone needs it copied in manually before these scripts can run.
 - **`src/identify_parameters/`** — offline, independent of Simulink: fits a static equivalent-circuit model
-  (OCV as a log/inverse-SOC curve, resistance as a degree-4 polynomial in SOC, optional first-order thermal
-  model) to discharge segments via `lsqnonlin`. Segments are selected by `mode` value (e.g. `mode == -3`).
-  These fitted parameters feed the model used inside the Simulink diagrams.
+  (OCV as a log/inverse-SOC curve, resistance as a degree-2 polynomial in SOC by default, plus a first-order
+  thermal model) to discharge segments, by default via `lsqnonlin` output-error simulation. Segments are
+  selected by `mode` value (e.g. `mode == -3`). A `cfg` block selects two opt-in extensions:
+  `cfg.ocvModelType = 'log_tanh'` (an S-curve inflection term for the mid-SOC plateau) and
+  `cfg.fitMethod = 'fmincon_constrained'` (a degree-4 R polynomial with `nonlcon` shape bounds instead of the
+  degree-2 fallback). A pulse held out of fitting is used for a genuine out-of-sample validation check. These
+  fitted parameters feed the model used inside the Simulink diagrams.
 - **`src/data_prep/`** — two stages. `extract_raw_battery_segments.m` reads the raw multi-step logs and
   filters each battery's `step` struct array by comment keyword into named categories (`random_walk`,
   `low_current`, `reference`, `pulsed`, `other`), saving each as its own `.mat` under `data/extracted/`.
