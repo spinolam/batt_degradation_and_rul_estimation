@@ -161,8 +161,7 @@ Typical workflow, in order:
    numbers.
 5. **Run the degradation-estimation simulation.** Two regimes, two subtrees:
    - *Constant-current* — `src/estimate_degradation/run_discharge_with_kf_real_data_new_parameters_new.m`
-     (the complete driver; `run_discharge_random.m` in the same folder is an older, unfinished stub — see
-     Architecture) uses the single robust gain from `src/models/lqr_synthesis_observer_simple_Lx3x3_no_VOC.m`
+     uses the single robust gain from `src/models/lqr_synthesis_observer_simple_Lx3x3_no_VOC.m`
      and the `estimation_data_with_new_parameter_new.slx` model.
    - *Random-walk* — `src/estimate_degradation/random_walk/` is the **primary** pipeline for this regime, built
      around a **gain-scheduled LPV observer** (`lqr_synthesis_observer_gain_scheduled_lpv.m`, synthesizing 4
@@ -185,21 +184,30 @@ Typical workflow, in order:
   object: `gammaf`, `gammaf_est`, `current_input`, `soc`, `soc_est`, `vt`, `vt_est`, `temperature`,
   `temperature_est`. These variable names are the contract between the `.m` driver scripts in
   `src/estimate_degradation/` and the Simulink block diagram — changing one side requires updating the other.
-- **`src/estimate_degradation/`** — top-level simulation drivers. Per battery/cycle, they build the input
-  timeseries from a data table (columns: `time`, `voltage_charger`, `current_load`, `temperature_battery`,
-  `mode`, where `mode == -i` selects discharge cycle `i`), run the Simulink sim, and accumulate per-cycle
-  gamma/SOC/voltage/temperature estimates into one `.mat` file per battery under `results/<date>/`.
-  `run_discharge_random.m` is a shorter, in-progress variant that stops after building the input timeseries
-  for one segment (no `sim`/save step yet) — `run_discharge_with_kf_real_data_new_parameters_new.m` is the
-  complete driver.
+- **`src/estimate_degradation/`** — top-level simulation drivers, plus three helpers shared with
+  `random_walk/`'s Simulink-driven driver: `init_simulation_accumulator.m`,
+  `accumulate_cycle_results.m`, and `save_simulation_results.m` (build the empty per-battery result
+  accumulator, append one cycle's `sim()` output to it, and write it to
+  `results/<date>/<date>_<battery>.mat` — one top-level `.mat` variable per accumulator field). Per
+  battery/cycle, `run_discharge_with_kf_real_data_new_parameters_new.m` builds the input timeseries from
+  a data table (columns: `time`, `voltage_charger`, `current_load`, `temperature_battery`, `mode`, where
+  `mode == -i` selects discharge cycle `i`), runs the Simulink sim, and accumulates per-cycle
+  gamma/SOC/voltage/temperature estimates via those helpers.
 - **`src/estimate_degradation/random_walk/`** — the gain-scheduled LPV pipeline (see Running the code, step 5).
   `battery_twin.m` (a forward simulation of the plant, used as ground truth) and `observer_lpv.m` (the LPV
   state observer, state `x = [gamma; SOC; V]`) are pure functions with persistent internal state — each
   exposes a `reset` flag (its last argument) that must be called once per cycle before use to clear that
-  state, or estimates leak across cycles. `calcule_l_observer.m` interpolates the gain-scheduled `L1..L4`
-  vertex gains at each sample via bilinear (tensor-product) weights on the current `(rho1, rho2)` pair,
-  vs. the single fixed gain the constant-current pipeline uses throughout. `voc_fun.m` is dead code ported
-  as-is (references undefined variables; not called by anything). Reads fitted parameters from
+  state, or estimates leak across cycles. Both call the shared `voc_fun.m`/`rint_fun.m` for the OCV/R(SOC)
+  curves rather than inlining them. `calcule_l_observer.m` interpolates the gain-scheduled `L1..L4`
+  vertex gains at each sample via bilinear (tensor-product) weights on the current `(rho1, rho2)` pair
+  (clamped to `[0, 1]` so an out-of-envelope current/resistance saturates to the nearest polytope vertex
+  instead of extrapolating outside the LMI-certified region), vs. the single fixed gain the
+  constant-current pipeline uses throughout. The pure-MATLAB drivers (`simulate_random_discharge_matlab.m`,
+  `simulate_reference_discharge_matlab.m`) share their per-cycle sample loop
+  (`simulate_discharge_cycle.m`, which calls `battery_twin`/`calcule_l_observer`/`observer_lpv` and stops
+  a cycle early once either the true or the estimated voltage crosses `cfg.voltage_cutoff`) and their
+  figures (`plot_discharge_results.m`); only the data loading/segmentation differs between the two.
+  Reads fitted parameters from
   `src/identify_parameters/parameters/<battery>.mat` (`params_opt`) and random-walk data from
   `data/random_walk_data/` (`<battery>_random.mat` holds raw `random_walk_discharge` steps;
   `<battery>.mat` holds pre-segmented `ref_discharges` cycles) — currently only `RW_Skewed_High_Room_Temp_DataSet_17`

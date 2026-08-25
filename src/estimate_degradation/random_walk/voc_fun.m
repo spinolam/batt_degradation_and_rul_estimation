@@ -1,8 +1,6 @@
-function voc = voc_fun(z)
-%VOC_FUN Summary of this function goes here
-%   Detailed explanation goes here
-% NOTE: ported as-is from source project — references undefined `params`/`zk`
-% (not this function's own args `z`), so calling it will error. Not called by
-% any other ported script; kept for parity, not wired into the pipeline.
-voc = params(2) - params(3)*log(100 - zk) - params(4)/zk;
+function voc = voc_fun(z, params)
+%VOC_FUN Open-circuit voltage as a function of SOC.
+% Shared by battery_twin.m and observer_lpv.m so the OCV curve only needs
+% to be changed in one place.
+voc = params(2) - params(3)*log(100 - z) - params(4)/z;
 end

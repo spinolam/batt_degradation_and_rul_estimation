@@ -30,8 +30,8 @@ Vk     = x(3);
 if zk > 99.9; zk = 99.9; end
 if zk < 1;    zk = 1;    end
 
-voc  = (params(2) - params(3)*log(100 - zk) - params(4)/zk);
-rint = (params(5) + params(6)*zk + params(7)*zk^2 + params(8)*zk^3 + params(9)*zk^4);
+voc  = voc_fun(zk, params);
+rint = rint_fun(zk, params);
 eta  = 100/(3600*Cr)*Ts;
 
 if isempty(rho1k)

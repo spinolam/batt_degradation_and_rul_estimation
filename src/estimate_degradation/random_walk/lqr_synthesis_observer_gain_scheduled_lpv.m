@@ -3,7 +3,8 @@
 % Gain-scheduled LPV variant: synthesizes 4 vertex gains L1..L4 (one per
 % polytope corner) instead of a single robust gain, so the observer gain is
 % interpolated at runtime via calcule_l_observer.m. This is the PRIMARY
-% design for the random-walk pipeline (see random_walk/README.md); the
+% design for the random-walk pipeline (see CLAUDE.md, "Running the code"
+% step 5, and docs/estimate_degradation_approach.md); the
 % single-gain script in src/models/ remains dedicated to the constant-current
 % pipeline — the two are tuned for different data regimes (note the different
 % Voc/Rint/current ranges below vs. the constant-current script) and are not
@@ -33,7 +34,7 @@ A1 = [b 0 0;
     eta*pho1_min 1 0;
    (1-a)*pho2_min 0 a];
 A2 = [b 0 0;
-    eta*pho2_min 1 0;
+    eta*pho1_min 1 0;
    (1-a)*pho2_max 0 a];
 A3 = [b 0 0;
     eta*pho1_max 1 0;

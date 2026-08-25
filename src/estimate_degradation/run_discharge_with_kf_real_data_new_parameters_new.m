@@ -54,17 +54,7 @@ for b = 1:length(battery_list)
 
     % Initialize variables (CLEAR before each battery)
     random_params = 0;
-    simuation_gamma_est = [];
-    simuation_gamma_true = [];
-    simuation_soc_est = [];
-    simuation_soc_true = [];
-    simuation_vt_est = [];
-    simuation_vt_true = [];
-    simuation_temperature_est = [];
-    simuation_temperature_true = [];
-    simuation_current_input = [];
-    count_cycle = [];
-    capacity_vector = [];
+    accum = init_simulation_accumulator();
     gamma0 = gamma_mean;
     gamma0_est = gamma_mean;
     max_cycle = -1 * min(dataOut.mode);
@@ -92,37 +82,16 @@ for b = 1:length(battery_list)
             gamma0 = r.gammaf(end);
             gamma0_est = r.gammaf_est(end);
 
-            count_cycle = [count_cycle i * ones(1, length(r.current_input(:, 1)))];
-            true_capacity = cumsum(-r.current_input(:, 1)) / 3600;
-            capacity_vector = [capacity_vector true_capacity(end) * ones(1, length(r.current_input(:, 1)))];
-
-            simuation_current_input = [simuation_current_input r.current_input(:, 1)'];
-            simuation_gamma_est = [simuation_gamma_est r.gammaf_est(:, 1)'];
-            simuation_gamma_true = [simuation_gamma_true r.gammaf(:, 1)'];
-            simuation_soc_est = [simuation_soc_est r.soc_est(:, 1)'];
-            simuation_soc_true = [simuation_soc_true r.soc(:, 1)'];
-            simuation_vt_est = [simuation_vt_est r.vt_est(:, 1)'];
-            simuation_vt_true = [simuation_vt_true r.vt(:, 1)'];
-            simuation_temperature_est = [simuation_temperature_est r.temperature_est(:, 1)'];
-            simuation_temperature_true = [simuation_temperature_true r.temperature(:, 1)'];
+            accum = accumulate_cycle_results(accum, i, r);
         end
     end
 
     % Save results
-    save_path = fullfile(proj_root, "results", date);
-    if ~exist(save_path, 'dir')
-        mkdir(save_path);
-    end
-    save_name = fullfile(save_path, date + "_" + battery_name + ".mat");
-    save(save_name, ...
-        "simuation_soc_est", "simuation_vt_est", "simuation_temperature_est", ...
-        "simuation_gamma_true", "simuation_soc_true", "simuation_vt_true", ...
-        "simuation_temperature_true", "simuation_gamma_est", ...
-        "simuation_current_input", "count_cycle", "capacity_vector");
+    save_simulation_results(proj_root, date, battery_name, accum);
 
     % Optional: Compute RMSE and display
     fprintf('RMSE LPV for %s: %.4f\n', battery_name, ...
-        sqrt(mean((movmean(simuation_gamma_est, 1) - simuation_gamma_true).^2)));
+        sqrt(mean((movmean(accum.simuation_gamma_est, 1) - accum.simuation_gamma_true).^2)));
 
     % Optional: Save figures or skip
     % figure(...); print(...);

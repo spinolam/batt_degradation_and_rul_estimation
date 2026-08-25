@@ -4,6 +4,11 @@ pho2= -rint*Ik;
 % 1. Normalizar los parámetros entre 0 y 1
 w1 = (pho1 - pho1_min) / (pho1_max - pho1_min);
 w2 = (pho2 - pho2_min) / (pho2_max - pho2_min);
+% Clamp to the polytope the gains were synthesized over: if the live
+% (rho1, rho2) falls outside [rho_min, rho_max], extrapolating mu1..mu4
+% outside the vertex simplex would give up the LMI stability guarantee.
+w1 = min(max(w1, 0), 1);
+w2 = min(max(w2, 0), 1);
 
 % 2. Calcular los pesos de los 4 vértices (Producto tensorial)
 mu1 = (1 - w1) * (1 - w2); % Corresponde a A1 (min, min)
