@@ -143,7 +143,9 @@ Typical workflow, in order:
    under `data/`; the parent-level `prepared data/` folder (shared with `2024/`) is untouched by this step.
 4. **Identify model parameters** (optional, offline) — `src/identify_parameters/identify_model_parameters.m`
    fits OCV + internal resistance polynomial + thermal model coefficients from discharge segments (selected
-   by `mode`) via `lsqnonlin`, reading from the parent-level `prepared data/`.
+   by `mode`) via `lsqnonlin`, reading RW1's low-current and pulsed CSVs from `data/constant/prepared/`
+   (output of step 3) — the low-current segment pins down OCV(SOC), the higher-current pulses pin down
+   R(SOC).
 5. **Run the degradation-estimation simulation** — `src/estimate_degradation/run_discharge_random.m` or
    `run_discharge_with_kf_real_data_new_parameters_new.m`. These loop over cycles/batteries, run the
    Simulink model via `sim(...)`, and save accumulated results to `results/<date>/<date>_<battery>.mat`.
