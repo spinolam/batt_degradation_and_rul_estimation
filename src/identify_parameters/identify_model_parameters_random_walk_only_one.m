@@ -44,7 +44,7 @@ subplot(3,1,2); plot(X,I);
 
 %% Compute SOC (no temperature)
 Z0=99.5;
-Z=Z0*ones(size(Y1));
+Z=Z0*ones(size(Y1,1),1);
 for i=2:length(Z)
     ts= X(i)-X(i-1);
     Z(i:end)=Z(i-1)-ts*100*I(i)/3600/Cn;
@@ -84,24 +84,24 @@ options = optimoptions('lsqnonlin','Display','iter');
 params_opt
 resnorm
 
-output = [Y1] + error_func(params_opt);
+output = Y1 + error_func(params_opt);
 
 %% Plot comparison
 figure(3)
-plot(X3,Y3,'-r',X3,output(size(Y1,1)+1 : size(Y1,1)+size(Y3,1)),'--b','LineWidth',2)
+plot(X,Y1,'-r',X,output,'--b','LineWidth',2)
 legend('Measured','Model')
 grid on
 ylabel('Terminal Voltage (V)')
 xlabel('Time (s)')
 
 figure(4)
-plot(Z4, params_opt(5)+params_opt(6)*Z4+params_opt(7)*Z4.^2+params_opt(8)*Z4.^3+params_opt(9)*Z4.^4, 'b','LineWidth',2)
+plot(Z, params_opt(5)+params_opt(6)*Z+params_opt(7)*Z.^2+params_opt(8)*Z.^3+params_opt(9)*Z.^4, 'b','LineWidth',2)
 grid on
 ylabel('Internal Resistance (Ohm)')
 xlabel('SOC (%)')
 
 figure(5)
-plot(Z4, [ones(size(Z4)) -log(100-Z4) -1./Z4] * params_opt(2:4),'b','LineWidth',2)
+plot(Z, [ones(size(Z)) -log(100-Z) -1./Z] * params_opt(2:4),'b','LineWidth',2)
 grid on
 ylabel('OCV (V)')
 xlabel('SOC (%)')

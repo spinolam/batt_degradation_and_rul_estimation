@@ -13,6 +13,35 @@ and `figures/`. Only the parent-level `prepared data/` folder is an active depen
 There is no build system, package manager, linter, or test suite — this is a MATLAB scripting project run
 interactively from the MATLAB GUI or command line (`matlab -batch "scriptname"`).
 
+## Experimental data: constant-current vs. variable-current segments
+
+Both the raw NASA logs (`data/raw/randomized_battery_usage/`) and the accelerated life-testing data set
+described in `docs/3587-Full-Length Manuscripts-13587-1-10-20231221.pdf` mix two fundamentally different
+kinds of cycling segments, and the pipeline below is organized around that split:
+
+- **Constant-current segments** — e.g. NASA's low-current (0.04A) discharge used to trace OCV vs. SOC, its
+  2A "reference discharge/charge", or the periodic ~1C reference discharges in the accelerated life-testing
+  data. Because the current is held fixed:
+  - The equivalent-circuit parameters (OCV(SOC) curve, internal-resistance polynomial, thermal model) can be
+    fit directly via `lsqnonlin` — this is what `src/identify_parameters/` does, and it only works on this
+    kind of segment.
+  - A full constant-current discharge gives a direct, model-free capacity measurement by integrating current
+    over time (Coulomb counting) — this is the ground-truth capacity/degradation benchmark, independent of
+    any observer or model (this is exactly how residual capacity is measured in the source experiments).
+
+- **Variable/random-current segments** — NASA's "random walk" cycling (current resampled every ≤5 minutes
+  from {-4.5A...4.5A}) or the "variable load" missions in the accelerated life-testing data (average 13-19A,
+  switching every 40-80s). This is the realistic-usage data the project wants to track degradation *under*.
+  Because the current isn't constant, neither trick above applies directly — the static OCV/R model can't be
+  fit cleanly, and Coulomb counting alone isn't a reliable capacity estimate. This is exactly why the project
+  runs the LPV/EKF-style observer (`src/models/` + `src/estimate_degradation/`) over this data: it estimates
+  SOC and the degradation parameter `gamma` online, using the equivalent-circuit parameters identified from
+  the constant-current segments as its underlying model.
+
+In short: constant-current segments are how the model is *calibrated* (parameters) and degradation is
+*ground-truthed* (capacity fade via Coulomb counting); variable-current segments are the *unknown* the
+observer is built to track.
+
 ## Requirements
 
 - MATLAB with Simulink

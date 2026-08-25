@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git commits
+
+Do not add Claude co-authorship (e.g. `Co-Authored-By: Claude ...`) or any Claude-generated attribution
+trailer to commit messages.
+
 ## Project overview
 
 MATLAB/Simulink project for estimating a battery degradation ("gamma") parameter using an LPV/EKF-style
@@ -12,11 +17,58 @@ from NASA's public "Randomized Battery Usage Data Set".
 There is no build system, package manager, linter, or test suite — this is a MATLAB scripting project run
 interactively from the MATLAB GUI or command line (`matlab -batch "scriptname"`).
 
+### Running MATLAB from the CLI
+
+MATLAB R2022a is installed at `/usr/local/MATLAB/R2022a/bin/matlab` (not on `PATH`); Octave is also available
+at `/usr/bin/octave` but doesn't support Simulink, so use MATLAB for anything touching the `.slx` models.
+Licensed toolboxes include Simulink, Optimization Toolbox, Global Optimization Toolbox, and Image Processing
+Toolbox — everything this project's scripts need.
+
+Run a script non-interactively with `-batch`, passing the full path (relative paths fail with "not found"):
+
+```
+/usr/local/MATLAB/R2022a/bin/matlab -batch "run('/full/path/to/script.m')"
+```
+
+`-batch` suppresses the desktop/splash and exits after the script finishes (or errors), printing output to
+stdout — good for driving from a shell/agent. Add a `timeout` wrapper for scripts that might hang.
+
 This `2025/` folder is one year of a larger, multi-year project rooted at its parent directory
 (`batt_gamma_estimation/`). That parent also contains `2024/` (a prior year's parallel code/results, treated
 as frozen research history — not touched by or coupled to anything below), a shared `prepared data/` folder,
 `data/` (a separate "battery_alt_dataset"), and `figures/`. Only `prepared data/` is an active dependency of
 scripts in this folder — see Architecture below.
+
+## Experimental data: constant-current vs. variable-current segments
+
+Both the raw NASA logs (`data/raw/randomized_battery_usage/`) and the accelerated life-testing data set
+described in `docs/3587-Full-Length Manuscripts-13587-1-10-20231221.pdf` mix two fundamentally different
+kinds of cycling segments, and the pipeline below is organized around that split:
+
+- **Constant-current segments** — e.g. NASA's low-current (0.04A) discharge used to trace OCV vs. SOC, its
+  2A "reference discharge/charge", or the periodic ~1C reference discharges in the accelerated life-testing
+  data. Because the current is held fixed:
+  - The equivalent-circuit parameters (OCV(SOC) curve, internal-resistance polynomial, thermal model) can be
+    fit directly via `lsqnonlin` — this is what `src/identify_parameters/` does, and it only works on this
+    kind of segment.
+  - A full constant-current discharge gives a direct, model-free capacity measurement by integrating current
+    over time (Coulomb counting) — this is the ground-truth capacity/degradation benchmark, independent of
+    any observer or model (this is exactly how residual capacity is measured in the source experiments).
+
+- **Variable/random-current segments** — NASA's "random walk" cycling (current resampled every ≤5 minutes
+  from {-4.5A...4.5A}) or the "variable load" missions in the accelerated life-testing data (average 13-19A,
+  switching every 40-80s). This is the realistic-usage data the project wants to track degradation *under*.
+  Because the current isn't constant, neither trick above applies directly — the static OCV/R model can't be
+  fit cleanly, and Coulomb counting alone isn't a reliable capacity estimate. This is exactly why the project
+  runs the LPV/EKF-style observer (`src/models/` + `src/estimate_degradation/`) over this data: it estimates
+  SOC and the degradation parameter `gamma` online, using the equivalent-circuit parameters identified from
+  the constant-current segments as its underlying model.
+
+In short: constant-current segments are how the model is *calibrated* (parameters) and degradation is
+*ground-truthed* (capacity fade via Coulomb counting); variable-current segments are the *unknown* the
+observer is built to track. Keep this distinction in mind when a script selects data by `mode` value or
+reads from `data/random/` vs. `data/raw/randomized_battery_usage/` — mixing the two kinds of segments into
+the wrong pipeline stage silently produces meaningless fits or estimates.
 
 ## Layout
 

@@ -33,18 +33,21 @@ xlabel('Sample Index')
 ylabel('Mode')
 
 % --- Save ---
+% Column vectors, one row per sample, named to match the schema every
+% downstream script expects (time, voltage_charger, current_load,
+% temperature_battery, mode).
 battery_random = struct();
-battery_random.temperature = temperature(is_discharge);
-battery_random.voltage = voltage(is_discharge);
-battery_random.current = current(is_discharge);
-battery_random.time = time(is_discharge);
-battery_random.mode = is_discharge(is_discharge)*-1;
+battery_random.time = time(is_discharge)';
+battery_random.voltage_charger = voltage(is_discharge)';
+battery_random.current_load = current(is_discharge)';
+battery_random.temperature_battery = temperature(is_discharge)';
+battery_random.mode = mode(is_discharge)';
 %
 figure
 plot(mode)
 
 battery_name = data_name + "_prepared.csv";
-writetable(battery_random, fullfile(parent_root, "prepared data", battery_name));
+writetable(struct2table(battery_random), fullfile(parent_root, "prepared data", battery_name));
 
 disp("Saved processed battery data as " + battery_name)
 
