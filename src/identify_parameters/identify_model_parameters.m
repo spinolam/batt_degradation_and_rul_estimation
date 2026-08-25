@@ -32,24 +32,17 @@ xlabel('Samples')
 linkaxes([ax1 ax2 ax3],'x');
 
 %% =========================================================
-%  EXTRACT DISCHARGE DATA
+%  EXTRACT DISCHARGE SEGMENTS
 % ==========================================================
 
 Z0 = 99.5;      % Initial SOC
 capacity = 2.5; % Battery capacity [Ah]
 
-% Extract three discharge segments
-[X1,Y1,Y1m1,I1,Z1,T1,T1m1] = extractDischarge(battery_data,-2,Z0,capacity);
-[X3,Y3,Y3m1,I3,Z3,T3,T3m1] = extractDischarge(battery_data,-3,Z0,capacity);
-[X4,Y4,Y4m1,I4,Z4,T4,T4m1] = extractDischarge(battery_data,-4,Z0,capacity);
-
-%% ===================== FILTER TEMPERATURE ================
-Y2  = T1(2:end);
-Y2m1 = T1m1;
-Y5  = T3(2:end);
-Y5m1 = T3m1;
-Y6  = T4(2:end);
-Y6m1 = T4m1;
+modeIDs = [-2, -3, -4];
+seg = repmat(struct('X',[],'V',[],'Vm1',[],'I',[],'Z',[],'T',[],'Tm1',[]), 1, numel(modeIDs));
+for i = 1:numel(modeIDs)
+    seg(i) = extractDischarge(battery_data, modeIDs(i), Z0, capacity);
+end
 
 %% =========================================================
 %  PARAMETER INITIAL GUESS
@@ -72,11 +65,7 @@ params0 = [
 
 %% ===================== ERROR FUNCTION ====================
 
-error_func = @(p) batteryErrorFunction(p,...
-    Y1,Y1m1,I1,Z1,...
-    Y3,Y3m1,I3,Z3,...
-    Y4,Y4m1,I4,Z4,...
-    Y2,Y2m1,Y5,Y5m1,Y6,Y6m1);
+error_func = @(p) batteryErrorFunction(p, seg);
 
 %% ===================== CONSTRAINTS =======================
 
@@ -99,39 +88,40 @@ disp(params_opt)
 disp('Residual Norm:')
 disp(resnorm)
 
+reportArCoefficient('Voltage AR coefficient  p(1)', params_opt(1), lb(1), ub(1));
+reportArCoefficient('Thermal AR coefficient  p(10)', params_opt(10), lb(10), ub(10));
+
 %% =========================================================
 %  MODEL OUTPUT
 % ==========================================================
 
-output = [
-    Y1;Y3;Y4;Y2;Y5;Y6
-] + error_func(params_opt);
+output = [vertcat(seg.V); vertcat(seg.T)] + error_func(params_opt);
 
 %% ===================== VALIDATION PLOTS ==================
 
 figure(3); clf;
-plot(X3,Y3,'r','LineWidth',2); hold on
-plot(X3,output(length(Y1)+1:length(Y1)+length(Y3)),'--b','LineWidth',2)
+plot(seg(2).X,seg(2).V,'r','LineWidth',2); hold on
+plot(seg(2).X,output(numel(seg(1).V)+1:numel(seg(1).V)+numel(seg(2).V)),'--b','LineWidth',2)
 legend('Measured','Model')
 xlabel('Time (s)')
 ylabel('Voltage (V)')
 grid on
 
 figure(4); clf;
-plot(Z4,polyResistance(params_opt,Z4),'LineWidth',2)
+plot(seg(3).Z,polyResistance(params_opt,seg(3).Z),'LineWidth',2)
 xlabel('SOC (%)')
 ylabel('Internal Resistance')
 grid on
 
 figure(5); clf;
-plot(Z4,ocvModel(params_opt,Z4),'LineWidth',2)
+plot(seg(3).Z,ocvModel(params_opt,seg(3).Z),'LineWidth',2)
 xlabel('SOC (%)')
 ylabel('Open Circuit Voltage')
 grid on
 
 figure(6); clf;
-plot(X4,Y6,'r','LineWidth',2); hold on
-plot(X4,output(end-length(Y6)+1:end),'--b','LineWidth',2)
+plot(seg(3).X,seg(3).T,'r','LineWidth',2); hold on
+plot(seg(3).X,output(end-numel(seg(3).T)+1:end),'--b','LineWidth',2)
 legend('Measured','Model')
 xlabel('Time (s)')
 grid on
@@ -140,7 +130,7 @@ grid on
 %  ================== LOCAL FUNCTIONS ======================
 % ==========================================================
 
-function [X,Y,Ym1,I,Z,T,Tm1] = extractDischarge(data,modeID,Z0,capacity)
+function s = extractDischarge(data,modeID,Z0,capacity)
 
     mask = data.mode == modeID;
 
@@ -149,54 +139,37 @@ function [X,Y,Ym1,I,Z,T,Tm1] = extractDischarge(data,modeID,Z0,capacity)
     Iraw = data.current_load(mask);
     Traw = data.temperature_battery(mask);
 
-    X = Xraw(2:end);
-    Y = Vraw(2:end);
-    Ym1 = Vraw(1:end-1);
-    I = Iraw(2:end);
+    s.X = Xraw(2:end);
+    s.V = Vraw(2:end);
+    s.Vm1 = Vraw(1:end-1);
+    s.I = Iraw(2:end);
 
-    T = Traw;
-    Tm1 = Traw(1:end-1);
+    s.T = Traw(2:end);
+    s.Tm1 = Traw(1:end-1);
 
-    % SOC calculation
-    Z = Z0 * ones(length(Y),1);
-
-    for k = 2:length(Z)
-        dt = X(k) - X(k-1);
-        Z(k:end) = Z(k-1) - dt*100*I(k)/(3600*capacity);
-        Z(Z < 0.001) = 0.001;
+    % SOC calculation (Coulomb counting)
+    s.Z = Z0 * ones(length(s.V),1);
+    for k = 2:length(s.Z)
+        dt = s.X(k) - s.X(k-1);
+        s.Z(k) = max(s.Z(k-1) - dt*100*s.I(k)/(3600*capacity), 0.001);
     end
 end
 
-function err = batteryErrorFunction(p,...
-    Y1,Y1m1,I1,Z1,...
-    Y3,Y3m1,I3,Z3,...
-    Y4,Y4m1,I4,Z4,...
-    Y2,Y2m1,Y5,Y5m1,Y6,Y6m1)
+function err = batteryErrorFunction(p, seg)
 
-    R1 = polyResistance(p,Z1);
-    R3 = polyResistance(p,Z3);
-    R4 = polyResistance(p,Z4);
+    err = [];
+    for i = 1:numel(seg)
+        R = polyResistance(p,seg(i).Z);
+        OCV = ocvModel(p,seg(i).Z);
+        V = p(1)*seg(i).Vm1 + (1-p(1))*(OCV - seg(i).I.*R);
+        err = [err; V - seg(i).V]; %#ok<AGROW>
+    end
 
-    OCV1 = ocvModel(p,Z1);
-    OCV3 = ocvModel(p,Z3);
-    OCV4 = ocvModel(p,Z4);
-
-    V1 = p(1)*Y1m1 + (1-p(1))*(OCV1 - I1.*R1);
-    V3 = p(1)*Y3m1 + (1-p(1))*(OCV3 - I3.*R3);
-    V4 = p(1)*Y4m1 + (1-p(1))*(OCV4 - I4.*R4);
-
-    T1 = p(10)*Y2m1 + (1-p(10))*(p(12) + p(11)*I1.^2.*R1);
-    T3 = p(10)*Y5m1 + (1-p(10))*(p(12) + p(11)*I3.^2.*R3);
-    T4 = p(10)*Y6m1 + (1-p(10))*(p(12) + p(11)*I4.^2.*R4);
-
-    err = [
-        V1 - Y1
-        V3 - Y3
-        V4 - Y4
-        T1 - Y2
-        T3 - Y5
-        T4 - Y6
-    ];
+    for i = 1:numel(seg)
+        R = polyResistance(p,seg(i).Z);
+        T = p(10)*seg(i).Tm1 + (1-p(10))*(p(12) + p(11)*seg(i).I.^2.*R);
+        err = [err; T - seg(i).T]; %#ok<AGROW>
+    end
 end
 
 function R = polyResistance(p,Z)
@@ -205,4 +178,16 @@ end
 
 function OCV = ocvModel(p,Z)
     OCV = p(2) - p(3)*log(100-Z) - p(4)./Z;
+end
+
+function reportArCoefficient(label, value, lb, ub)
+    tol = 0.02*(ub-lb);
+    physicalWeight = 1 - value;
+    fprintf('%s = %.4f  (bounds [%.4f, %.4f], physical-model weight (1-p) = %.4f)\n', ...
+        label, value, lb, ub, physicalWeight);
+    if (value - lb) < tol || (ub - value) < tol
+        warning(['%s is within 2%% of its bound. The physical OCV/R (or thermal) ' ...
+                 'submodel may be getting little leverage in this fit -- treat the ' ...
+                 'validation plots with caution.'], label);
+    end
 end

@@ -141,10 +141,9 @@ Typical workflow, in order:
    via `bwlabel`, scoped per class) to the matching `data/constant/prepared/` or `data/random/prepared/`
    folder — a single raw file can produce both outputs if it mixes segment types. This is self-contained
    under `data/`; the parent-level `prepared data/` folder (shared with `2024/`) is untouched by this step.
-4. **Identify model parameters** (optional, offline) — scripts in `src/identify_parameters/` fit OCV +
-   internal resistance polynomial + thermal model coefficients from discharge segments via `lsqnonlin`.
-   `identify_model_parameters_nonlinear_all_random_data.m` reads from the parent-level `prepared data/`;
-   `identify_model_parameters_random_walk*.m` read directly from `data/constant/`.
+4. **Identify model parameters** (optional, offline) — `src/identify_parameters/identify_model_parameters.m`
+   fits OCV + internal resistance polynomial + thermal model coefficients from discharge segments (selected
+   by `mode`) via `lsqnonlin`, reading from the parent-level `prepared data/`.
 5. **Run the degradation-estimation simulation** — `src/estimate_degradation/run_discharge_random.m` or
    `run_discharge_with_kf_real_data_new_parameters_new.m`. These loop over cycles/batteries, run the
    Simulink model via `sim(...)`, and save accumulated results to `results/<date>/<date>_<battery>.mat`.
