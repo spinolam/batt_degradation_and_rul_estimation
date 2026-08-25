@@ -39,7 +39,7 @@ Z0 = 99.5;      % Initial SOC
 capacity = 2.5; % Battery capacity [Ah]
 
 modeIDs = [-2, -3, -4];
-seg = repmat(struct('X',[],'V',[],'Vm1',[],'I',[],'Z',[],'T',[],'Tm1',[]), 1, numel(modeIDs));
+seg = repmat(struct('X',[],'V',[],'V0',[],'I',[],'Z',[],'T',[],'T0',[]), 1, numel(modeIDs));
 for i = 1:numel(modeIDs)
     seg(i) = extractDischarge(battery_data, modeIDs(i), Z0, capacity);
 end
@@ -141,11 +141,11 @@ function s = extractDischarge(data,modeID,Z0,capacity)
 
     s.X = Xraw(2:end);
     s.V = Vraw(2:end);
-    s.Vm1 = Vraw(1:end-1);
+    s.V0 = Vraw(1);    % initial condition for the voltage simulation below
     s.I = Iraw(2:end);
 
     s.T = Traw(2:end);
-    s.Tm1 = Traw(1:end-1);
+    s.T0 = Traw(1);    % initial condition for the temperature simulation below
 
     % SOC calculation (Coulomb counting)
     s.Z = Z0 * ones(length(s.V),1);
@@ -156,19 +156,34 @@ function s = extractDischarge(data,modeID,Z0,capacity)
 end
 
 function err = batteryErrorFunction(p, seg)
+    % Output-error (simulation-error) fit: each segment is simulated open-loop from its
+    % true initial sample (V0/T0) forward, feeding back the model's own previous
+    % prediction rather than the true previous measurement. This is what determines
+    % whether the OCV/R (and thermal) submodel is actually predictive, since the
+    % downstream EKF observer never gets to see ground truth at each step either.
 
     err = [];
     for i = 1:numel(seg)
         R = polyResistance(p,seg(i).Z);
         OCV = ocvModel(p,seg(i).Z);
-        V = p(1)*seg(i).Vm1 + (1-p(1))*(OCV - seg(i).I.*R);
-        err = [err; V - seg(i).V]; %#ok<AGROW>
+        Vhat = simulateAR(p(1), seg(i).V0, OCV - seg(i).I.*R);
+        err = [err; Vhat - seg(i).V]; %#ok<AGROW>
     end
 
     for i = 1:numel(seg)
         R = polyResistance(p,seg(i).Z);
-        T = p(10)*seg(i).Tm1 + (1-p(10))*(p(12) + p(11)*seg(i).I.^2.*R);
-        err = [err; T - seg(i).T]; %#ok<AGROW>
+        That = simulateAR(p(10), seg(i).T0, p(12) + p(11)*seg(i).I.^2.*R);
+        err = [err; That - seg(i).T]; %#ok<AGROW>
+    end
+end
+
+function yhat = simulateAR(a, y0, forcing)
+    % yhat(k) = a*yhat(k-1) + (1-a)*forcing(k), seeded from the true sample y0.
+    yhat = zeros(size(forcing));
+    prev = y0;
+    for k = 1:numel(forcing)
+        yhat(k) = a*prev + (1-a)*forcing(k);
+        prev = yhat(k);
     end
 end
 
