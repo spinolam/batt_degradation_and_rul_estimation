@@ -1,5 +1,6 @@
 # Large / regenerable data
 /data/raw/
+/data/extracted/
 /data/constant/prepared/
 /data/random/prepared/
 /results/

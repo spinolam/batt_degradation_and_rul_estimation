@@ -3,15 +3,21 @@ clear all
 this_dir = fileparts(mfilename('fullpath'));
 proj_root = fileparts(fileparts(this_dir));    % 2025/src/data_prep -> 2025/
 
-% Every raw .mat under data/constant/ and data/random/ gets loaded, its samples
-% are classified constant- vs. random-current (see classify_random below), and
-% each non-empty class is written out under the matching data/<class>/prepared/
-% folder -- regardless of which of the two input folders the raw file came from.
-input_dirs = {fullfile(proj_root, 'data', 'constant'), fullfile(proj_root, 'data', 'random')};
+% Every raw .mat under data/constant/, data/random/, and data/extracted/*/
+% (the per-category output of extract_raw_battery_segments.m) gets loaded,
+% its samples are classified constant- vs. random-current (see
+% classify_random below), and each non-empty class is written out under the
+% matching data/<class>/prepared/ folder -- regardless of which input folder
+% the raw file came from.
+input_globs = {
+    fullfile(proj_root, 'data', 'constant', '*.mat')
+    fullfile(proj_root, 'data', 'random', '*.mat')
+    fullfile(proj_root, 'data', 'extracted', '*', '*.mat')
+};
 
 mat_files = {};
-for i = 1:numel(input_dirs)
-    d = dir(fullfile(input_dirs{i}, '*.mat'));
+for i = 1:numel(input_globs)
+    d = dir(input_globs{i});
     for j = 1:numel(d)
         mat_files{end+1} = fullfile(d(j).folder, d(j).name); %#ok<AGROW>
     end
@@ -19,7 +25,17 @@ end
 
 for k = 1:numel(mat_files)
     matFile = mat_files{k};
-    [~, base, ~] = fileparts(matFile);
+    [file_dir, name, ~] = fileparts(matFile);
+    [~, parent_folder, ~] = fileparts(file_dir);
+    if any(strcmp(parent_folder, {'constant', 'random'}))
+        % data/constant/*.mat, data/random/*.mat: already unique filenames.
+        base = name;
+    else
+        % data/extracted/<battery>/<category>.mat: category alone repeats
+        % across every battery, so prefix with the battery folder name to
+        % keep each battery's output from overwriting the others'.
+        base = parent_folder + "_" + name;
+    end
     fprintf('=== Processing %s ===\n', base);
 
     tbl = load_segments_table(matFile);
@@ -39,12 +55,18 @@ function tbl = load_segments_table(matFile)
         % current/temperature vectors. Concatenate across all elements
         % (plain `s.step.field` on a struct array only keeps the first
         % element's data, which silently dropped everything but one step).
+        % Use the absolute `time` field, not `relativeTime` (which resets to
+        % ~0 at the start of every step) -- across more than one step,
+        % relativeTime would concatenate into a non-monotonic time axis. Some
+        % hand-built single-step fixtures carry a `time` that was never
+        % stitched to match `voltage` (e.g. just [start, end]); fall back to
+        % `relativeTime` for those rather than erroring.
         steps = s.step;
-        time_c = arrayfun(@(st) st.relativeTime(:), steps, 'UniformOutput', false);
+        time_c = arrayfun(@pick_time, steps, 'UniformOutput', false);
         voltage_c = arrayfun(@(st) st.voltage(:), steps, 'UniformOutput', false);
         current_c = arrayfun(@(st) st.current(:), steps, 'UniformOutput', false);
         temperature_c = arrayfun(@(st) st.temperature(:), steps, 'UniformOutput', false);
-        comment_c = arrayfun(@(st) repmat({st.comment}, numel(st.relativeTime), 1), steps, 'UniformOutput', false);
+        comment_c = arrayfun(@(st) repmat({st.comment}, numel(st.voltage), 1), steps, 'UniformOutput', false);
 
         time = vertcat(time_c{:});
         voltage = vertcat(voltage_c{:});
@@ -61,6 +83,14 @@ function tbl = load_segments_table(matFile)
         comment = repmat({'unlabeled'}, numel(current), 1);
     end
     tbl = table(time, voltage, current, temperature, comment);
+end
+
+function t = pick_time(st)
+    if numel(st.time) == numel(st.voltage)
+        t = st.time(:);
+    else
+        t = st.relativeTime(:);
+    end
 end
 
 function is_random = classify_random(tbl)

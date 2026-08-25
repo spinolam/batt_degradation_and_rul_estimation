@@ -41,13 +41,26 @@ scripts in this folder — see Architecture below.
 
 ## Experimental data: constant-current vs. variable-current segments
 
-Both the raw NASA logs (`data/raw/randomized_battery_usage/`) and the accelerated life-testing data set
-described in `docs/3587-Full-Length Manuscripts-13587-1-10-20231221.pdf` mix two fundamentally different
-kinds of cycling segments, and the pipeline below is organized around that split:
+This project draws on two independent, unrelated datasets, each documented separately:
+
+- **NASA's "Randomized Battery Usage Data Set"** (`data/raw/randomized_battery_usage/`; Bole, Kulkarni &
+  Daigle, NASA Ames PCoE) — downloaded as item "11. Randomized Battery Usage" from the
+  [NASA PCoE Data Set Repository](https://www.nasa.gov/intelligent-systems-division/discovery-and-systems-health/pcoe/pcoe-data-set-repository/);
+  documented per sub-dataset by its own `README_RW_*.html`/`.Rmd` file.
+- **The accelerated life-testing dataset** described in
+  `docs/3587-Full-Length Manuscripts-13587-1-10-20231221.pdf` (Fricke, Nascimento, Corbetta, Kulkarni &
+  Viana) — this is `battery_alt_dataset` at the parent level (`batt_gamma_estimation/data/`; see its own
+  `README.txt`), **not** anything under this project's `data/`. The `battery00.csv`...`battery52.csv` files
+  in the shared `prepared data/` folder that `src/identify_parameters/` and `src/estimate_degradation/`
+  read are almost certainly derived from it — the naming matches `battery_alt_dataset`'s `batt_XX.mat` files
+  exactly, and its `README.txt` documents the same `mode`/`mission type` columns those scripts rely on.
+
+Despite being unrelated, both datasets mix the same two fundamentally different kinds of cycling segments,
+and this project's pipeline is organized around that split:
 
 - **Constant-current segments** — e.g. NASA's low-current (0.04A) discharge used to trace OCV vs. SOC, its
-  2A "reference discharge/charge", or the periodic ~1C reference discharges in the accelerated life-testing
-  data. Because the current is held fixed:
+  2A "reference discharge/charge", or `battery_alt_dataset`'s periodic reference discharges (constant
+  current at 2.5A, per its `README.txt`). Because the current is held fixed:
   - The equivalent-circuit parameters (OCV(SOC) curve, internal-resistance polynomial, thermal model) can be
     fit directly via `lsqnonlin` — this is what `src/identify_parameters/` does, and it only works on this
     kind of segment.
@@ -56,19 +69,20 @@ kinds of cycling segments, and the pipeline below is organized around that split
     any observer or model (this is exactly how residual capacity is measured in the source experiments).
 
 - **Variable/random-current segments** — NASA's "random walk" cycling (current resampled every ≤5 minutes
-  from {-4.5A...4.5A}) or the "variable load" missions in the accelerated life-testing data (average 13-19A,
-  switching every 40-80s). This is the realistic-usage data the project wants to track degradation *under*.
-  Because the current isn't constant, neither trick above applies directly — the static OCV/R model can't be
-  fit cleanly, and Coulomb counting alone isn't a reliable capacity estimate. This is exactly why the project
-  runs the LPV/EKF-style observer (`src/models/` + `src/estimate_degradation/`) over this data: it estimates
-  SOC and the degradation parameter `gamma` online, using the equivalent-circuit parameters identified from
-  the constant-current segments as its underlying model.
+  from {-4.5A...4.5A}) or `battery_alt_dataset`'s "regular mission"/variable-load cycling. This is the
+  realistic-usage data the project wants to track degradation *under*. Because the current isn't constant,
+  neither trick above applies directly — the static OCV/R model can't be fit cleanly, and Coulomb counting
+  alone isn't a reliable capacity estimate. This is exactly why the project runs the LPV/EKF-style observer
+  (`src/models/` + `src/estimate_degradation/`) over this data: it estimates SOC and the degradation
+  parameter `gamma` online, using the equivalent-circuit parameters identified from the constant-current
+  segments as its underlying model.
 
 In short: constant-current segments are how the model is *calibrated* (parameters) and degradation is
 *ground-truthed* (capacity fade via Coulomb counting); variable-current segments are the *unknown* the
-observer is built to track. Keep this distinction in mind when a script selects data by `mode` value or
-reads from `data/random/` vs. `data/raw/randomized_battery_usage/` — mixing the two kinds of segments into
-the wrong pipeline stage silently produces meaningless fits or estimates.
+observer is built to track. Keep this distinction in mind when a script selects data by `mode` value, by
+`data/extracted/<battery>/<category>.mat` category, or reads from `data/random/` vs.
+`data/raw/randomized_battery_usage/` — mixing the two kinds of segments into the wrong pipeline stage
+silently produces meaningless fits or estimates.
 
 ## Layout
 
@@ -76,6 +90,7 @@ the wrong pipeline stage silently produces meaningless fits or estimates.
 2025/
 ├── data/
 │   ├── raw/randomized_battery_usage/   # third-party NASA dataset, read-only
+│   ├── extracted/<battery>/             # per-category segments isolated from the raw logs (see below)
 │   ├── constant/                        # constant-current .mat inputs + prepared/ CSV output
 │   └── random/                          # random/variable-current .mat inputs + prepared/ CSV output
 ├── src/
@@ -107,20 +122,26 @@ Typical workflow, in order:
    the **CVX** convex-optimization toolbox (`cvx_startup`, `cvx_begin sdp`) to solve the polytopic LMI and
    produce the observer gain `L3`. Invoked via `run(fullfile(models_dir, ...))` from inside the
    `estimate_degradation/` drivers — no need to have it on the MATLAB path.
-2. **Prepare constant/random data** — `src/data_prep/prepara_random_data.m` loads every raw `.mat` under
-   `data/constant/` and `data/random/`, classifies each sample as constant- or random-current (see
-   "Experimental data" above), and writes a labeled discharge dataset (`mode` column via `bwlabel`, scoped
-   per class) to the matching `data/constant/prepared/` or `data/random/prepared/` folder — a single raw
-   file can produce both outputs if it mixes segment types. This is self-contained under `data/`; the
-   parent-level `prepared data/` folder (shared with `2024/`) is untouched by this step.
-3. **Identify model parameters** (optional, offline) — scripts in `src/identify_parameters/` fit OCV +
+2. **Extract per-category segments from the raw logs** — `src/data_prep/extract_raw_battery_segments.m`
+   loads every raw multi-step log under `data/raw/randomized_battery_usage/**/data/Matlab/RW*.mat` and
+   isolates the useful step types (mirroring what NASA's own `MatlabSamplePlots.m` reference script does by
+   hand, per dataset, for plotting only) by keyword-matching each step's `comment`: `random_walk`,
+   `low_current`, `reference`, `pulsed`, or `other` if unmatched. Each non-empty category is saved as
+   `data/extracted/<battery>/<category>.mat`.
+3. **Prepare constant/random data** — `src/data_prep/prepara_random_data.m` loads every raw `.mat` under
+   `data/constant/`, `data/random/`, and `data/extracted/*/`, classifies each sample as constant- or
+   random-current (see "Experimental data" above), and writes a labeled discharge dataset (`mode` column
+   via `bwlabel`, scoped per class) to the matching `data/constant/prepared/` or `data/random/prepared/`
+   folder — a single raw file can produce both outputs if it mixes segment types. This is self-contained
+   under `data/`; the parent-level `prepared data/` folder (shared with `2024/`) is untouched by this step.
+4. **Identify model parameters** (optional, offline) — scripts in `src/identify_parameters/` fit OCV +
    internal resistance polynomial + thermal model coefficients from discharge segments via `lsqnonlin`.
    `identify_model_parameters_nonlinear_all_random_data.m` reads from the parent-level `prepared data/`;
    `identify_model_parameters_random_walk*.m` read directly from `data/constant/`.
-4. **Run the degradation-estimation simulation** — `src/estimate_degradation/run_discharge_random.m` or
+5. **Run the degradation-estimation simulation** — `src/estimate_degradation/run_discharge_random.m` or
    `run_discharge_with_kf_real_data_new_parameters_new.m`. These loop over cycles/batteries, run the
    Simulink model via `sim(...)`, and save accumulated results to `results/<date>/<date>_<battery>.mat`.
-5. **Plot results** — scripts in `src/plot_results/` load the saved `results/<date>/...mat` files and
+6. **Plot results** — scripts in `src/plot_results/` load the saved `results/<date>/...mat` files and
    produce comparison plots (voltage/temperature/SOC/degradation) across cycles or battery types.
 
 ## Architecture
@@ -142,14 +163,17 @@ Typical workflow, in order:
   (OCV as a log/inverse-SOC curve, resistance as a degree-4 polynomial in SOC, optional first-order thermal
   model) to discharge segments via `lsqnonlin`. Segments are selected by `mode` value (e.g. `mode == -3`).
   These fitted parameters feed the model used inside the Simulink diagrams.
-- **`src/data_prep/`** — `prepara_random_data.m` turns raw `.mat` logs into labeled discharge datasets. For
-  NASA "step"-struct inputs it classifies each step by its `comment` field (anything containing "random
-  walk" is random-current; everything else — low-current, reference, pulsed profiles, and their rests — is
+- **`src/data_prep/`** — two stages. `extract_raw_battery_segments.m` reads the raw multi-step logs and
+  filters each battery's `step` struct array by comment keyword into named categories (`random_walk`,
+  `low_current`, `reference`, `pulsed`, `other`), saving each as its own `.mat` under `data/extracted/`.
+  `prepara_random_data.m` then turns any raw `.mat` (from `data/constant/`, `data/random/`, or
+  `data/extracted/*/`) into labeled discharge datasets: for NASA "step"-struct inputs it classifies each
+  step by its `comment` field (anything containing "random walk" is random-current; everything else is
   constant-current); for flat `I`/`V`/`RT` inputs with no per-sample label it falls back to a
   current-stability heuristic. Each class gets `mode` via `bwlabel` on the sign of current, computed
   separately so cycle numbering stays meaningful within one current regime.
 - **`data/raw/randomized_battery_usage/`** — third-party NASA dataset (raw `.mat`/README per subset); treat
-  as read-only input data, not project source. Not currently read by any script here.
+  as read-only input data, not project source. Read by `extract_raw_battery_segments.m` (see above).
 - **`results/<date>/`** — one `.mat` per battery per experiment date, produced by
   `src/estimate_degradation/` and consumed by `src/plot_results/`. Dates are arbitrary run labels (e.g.
   `24-sept`, `2-oct`, `4-oct`, `24-oct`), not calendar constraints. `results/unsorted_snapshots/` holds three
