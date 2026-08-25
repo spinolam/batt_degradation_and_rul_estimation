@@ -49,7 +49,9 @@ This project draws on two independent, unrelated datasets, each documented separ
   documented per sub-dataset by its own `README_RW_*.html`/`.Rmd` file.
 - **The accelerated life-testing dataset** described in
   `docs/3587-Full-Length Manuscripts-13587-1-10-20231221.pdf` (Fricke, Nascimento, Corbetta, Kulkarni &
-  Viana) — this is `battery_alt_dataset` at the parent level (`batt_gamma_estimation/data/`; see its own
+  Viana) — downloaded as item "21. Accelerated Battery Life Testing" from the same
+  [NASA PCoE Data Set Repository](https://www.nasa.gov/intelligent-systems-division/discovery-and-systems-health/pcoe/pcoe-data-set-repository/).
+  This is `battery_alt_dataset` at the parent level (`batt_gamma_estimation/data/`; see its own
   `README.txt`), **not** anything under this project's `data/`. The `battery00.csv`...`battery52.csv` files
   in the shared `prepared data/` folder that `src/identify_parameters/` and `src/estimate_degradation/`
   read are almost certainly derived from it — the naming matches `battery_alt_dataset`'s `batt_XX.mat` files
